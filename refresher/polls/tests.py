@@ -4,7 +4,7 @@ from django.test import TestCase
 from django.utils import timezone
 from django.urls import reverse
 
-from .models import Question
+from .models import Question, Choice
 
 # Create your tests here.
 
@@ -32,12 +32,16 @@ class QuestionModelTests(TestCase):
     self.assertIs(old_question.was_published_recently(), False)
 
 
-def create_question(question_text, num_days):
+def create_question(question_text, num_days, create_choices=True):
   '''Shortcut function to quickly create dummy questions for tests.
   question_text is the title of the question, and num_days is an int value for how
   many days in the past/future the question's pub_date is. Use negative values for past dates.'''
   time = timezone.now() + datetime.timedelta(days=num_days)
-  return Question.objects.create(question_text=question_text, pub_date=time)
+  q = Question.objects.create(question_text=question_text, pub_date=time)
+  if create_choices:
+    Choice.objects.create(question=q, choice_text='Choice 1')
+    Choice.objects.create(question=q, choice_text='Choice 2')
+  return q
 
 
 class QuestionIndexViewTests(TestCase):
@@ -77,3 +81,17 @@ class QuestionIndexViewTests(TestCase):
     past_question_2 = create_question('Past Question 2', -7)
     response = self.client.get(reverse('polls:index'))
     self.assertQuerysetEqual(response.context['latest_question_list'], [past_question_2, past_question_1]) # the order of questions is important
+
+  def test_question_with_no_choices(self):
+    '''A single question with no choices exists, nothing should be published.'''
+    create_question('Question with no choices', -1, False)
+    response = self.client.get(reverse('polls:index'))
+    self.assertContains(response, 'No polls')
+    self.assertQuerysetEqual(response.context['latest_question_list'], [])
+
+  def test_question_with_choices_and_question_with_no_choices(self):
+    '''Two questions, one with choices and without, exist; only the one with choices should be published.'''
+    question_with_choices = create_question('Question with no choices', -3, True)
+    create_question('Question with no choices', -1, False)
+    response = self.client.get(reverse('polls:index'))
+    self.assertQuerysetEqual(response.context['latest_question_list'], [question_with_choices])
